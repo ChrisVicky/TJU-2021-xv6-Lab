@@ -4,6 +4,10 @@
 int 
 main(int argc, char *argv)
 {
+    if(argc > 1){
+        fprintf(2, "Too many argumnets!\n");
+        exit(1);
+    }
     int child_id;
     int parent_fb[2], child_fb[2];
     /* NOTES:   fd[0] is set up for reading, 
