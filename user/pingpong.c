@@ -28,11 +28,11 @@ main(int argc, char *argv)
         write(child_fb[1], "ping", strlen("ping"));
         /* read from child through fb[0] */
         read(parent_fb[0], parent_buffer, sizeof(parent_buffer));
-        printf("%d: received pong\n" ,getpid());
+        printf("%d: received %s\n" ,getpid(),parent_buffer);
     }else{
         /* Children process */
         read(child_fb[0], child_buffer, sizeof(child_buffer));
-        printf("%d: received ping\n" ,getpid());
+        printf("%d: received %s\n" ,getpid(),child_buffer);
         write(parent_fb[1], "pong", strlen("pong"));
     }
     exit(0);
