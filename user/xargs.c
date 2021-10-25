@@ -11,16 +11,16 @@ int
 main(int argc, char *argv[])
 {
     int i=1;
+    int count = 1;
     if(argc < 2){
         printf("Xars: Arguments reqired!\n");
         exit(0);
     }
     if(!strcmp(argv[i], "-n"))
     {
-        i++;
-        
+        count++; 
     }
-    for(i;i<argc;i++)
+    for(i=count;i<argc;i++)
         xargs(argv[i]);
     exit(0);
 }
