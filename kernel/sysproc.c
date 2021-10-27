@@ -95,3 +95,17 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+/* trace --> lab2
+   2021.10.27
+ */
+uint64
+sys_trace(void)
+{
+  uint64 p;
+  if(argaddr(0, &p) < 0)
+    return -1;
+  myproc()->mask = p;
+  return 0;
+}
