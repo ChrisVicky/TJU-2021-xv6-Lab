@@ -696,3 +696,19 @@ procdump(void)
     printf("\n");
   }
 }
+
+/* 2021.10.29 
+ * Get the Number of free Proc (s)
+ * Lab 2
+ * */
+uint64
+procNum(void){
+	struct proc *p;
+	uint64 cnt = 0;
+	for(p = proc; p< &proc[NPROC]; p++){
+		acquire(&p->lock);
+		if(p->state != UNUSED) cnt++;
+		release(&p->lock);
+	}
+	return cnt;
+}

@@ -80,3 +80,19 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+/* 2021.10.29: Get Free Memory 
+ * From kmem.freelist get HEAD;
+ * Then count them up;
+ * Lab 2 
+ * */
+uint64 freeMem(void){
+	struct run *pg = kmem.freelist;
+	uint64 cnt = 0;
+	while(pg){
+		cnt++;
+		pg = pg->next;
+	}
+	return cnt * PGSIZE;
+}
+

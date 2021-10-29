@@ -1,5 +1,6 @@
 struct stat;
 struct rtcdate;
+struct sysinfo;
 
 // system calls
 int fork(void);
@@ -43,3 +44,5 @@ void *memcpy(void *, const void *, uint);
 
 /* 2021.10.27: trace */
 int trace(int);
+/* 2021.10.29: sysinfo */
+int sysinfo(struct sysinfo *);
