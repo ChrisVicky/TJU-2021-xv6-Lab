@@ -1,0 +1,168 @@
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3b0b866..819c7d8 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -46,8 +46,14 @@ sys_sbrk(void)
+ 
+   if(argint(0, &n) < 0)
+     return -1;
+-  addr = myproc()->sz;
+-  myproc()->sz += n;
++//  addr = myproc()->sz;
++//  myproc()->sz += n;
++  struct proc *p = myproc();
++  addr = p->sz;
++  p->sz += n;
++  if(n<0){
++  	p->sz = uvmdealloc(p->pagetable, addr, addr+n);
++  }
+ //  if(growproc(n) < 0)
+ //    return -1;
+   return addr;
+diff --git a/kernel/trap.c b/kernel/trap.c
+index a63249e..f570573 100644
+--- a/kernel/trap.c
++++ b/kernel/trap.c
+@@ -10,7 +10,8 @@ struct spinlock tickslock;
+ uint ticks;
+ 
+ extern char trampoline[], uservec[], userret[];
+-
++extern int lazy_alloc(uint64);
++extern void vmprint(pagetable_t pagetable);
+ // in kernelvec.S, calls kerneltrap().
+ void kernelvec();
+ 
+@@ -67,7 +68,11 @@ usertrap(void)
+     syscall();
+   } else if((which_dev = devintr()) != 0){
+     // ok
+-  } else {
++  } else if(r_scause()==13 || r_scause()==15) {
++	// 13: pageloading faults, 15: pagewriting fault
++	uint64 addr = r_stval();
++	if(lazy_alloc(addr)<0) p->killed=1;
++  }else {
+     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+     p->killed = 1;
+diff --git a/kernel/vm.c b/kernel/vm.c
+index bccb405..04f416a 100644
+--- a/kernel/vm.c
++++ b/kernel/vm.c
+@@ -5,6 +5,8 @@
+ #include "riscv.h"
+ #include "defs.h"
+ #include "fs.h"
++#include "spinlock.h"
++#include "proc.h"
+ 
+ /*
+  * the kernel's page table.
+@@ -15,6 +17,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
+ 
+ extern char trampoline[]; // trampoline.S
+ 
++int lazy_alloc(uint64);
+ /*
+  * create a direct-map page table for the kernel.
+  */
+@@ -101,10 +104,10 @@ walkaddr(pagetable_t pagetable, uint64 va)
+     return 0;
+ 
+   pte = walk(pagetable, va, 0);
+-  if(pte == 0)
+-    return 0;
+-  if((*pte & PTE_V) == 0)
+-    return 0;
++  if(pte == 0 || (*pte & PTE_V)==0){
++  	if(lazy_alloc(va)==0) pte = walk(pagetable, va, 0);
++	else return 0;
++  }
+   if((*pte & PTE_U) == 0)
+     return 0;
+   pa = PTE2PA(*pte);
+@@ -178,12 +181,13 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
+ 
+   if((va % PGSIZE) != 0)
+     panic("uvmunmap: not aligned");
+-
+   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
+     if((pte = walk(pagetable, a, 0)) == 0)
+-      panic("uvmunmap: walk");
++      continue;
++      //panic("uvmunmap: walk");
+     if((*pte & PTE_V) == 0)
+-      panic("uvmunmap: not mapped");
++      //panic("uvmunmap: not mapped");
++      continue;
+     if(PTE_FLAGS(*pte) == PTE_V)
+       panic("uvmunmap: not a leaf");
+     if(do_free){
+@@ -283,7 +287,7 @@ freewalk(pagetable_t pagetable)
+       freewalk((pagetable_t)child);
+       pagetable[i] = 0;
+     } else if(pte & PTE_V){
+-      panic("freewalk: leaf");
++      //panic("freewalk: leaf");
+     }
+   }
+   kfree((void*)pagetable);
+@@ -315,9 +319,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+ 
+   for(i = 0; i < sz; i += PGSIZE){
+     if((pte = walk(old, i, 0)) == 0)
+-      panic("uvmcopy: pte should exist");
++      continue;
++    		//panic("uvmcopy: pte should exist");
+     if((*pte & PTE_V) == 0)
+-      panic("uvmcopy: page not present");
++      continue;
++	    	//panic("uvmcopy: page not present");
+     pa = PTE2PA(*pte);
+     flags = PTE_FLAGS(*pte);
+     if((mem = kalloc()) == 0)
+@@ -440,3 +446,43 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+     return -1;
+   }
+ }
++int
++lazy_alloc(uint64 addr) {
++  struct proc *P = myproc();
++  if(addr >= P->sz) return -1; /* access invalid address */
++  if(addr < P->trapframe->sp) return -2; /* access address below stack */
++  uint boarder = PGROUNDDOWN(addr);	  
++  char* memory = kalloc();
++  if(memory==0) return -3; /* kalloc failed */
++  memset(memory, 0, PGSIZE);
++  if(mappages(P->pagetable, boarder, PGSIZE, (uint64)memory, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
++    kfree(memory);
++    return -4;
++  }
++  return 0;
++}
++
++void printwalk(pagetable_t pagetable, uint level) {
++  char* prefix;
++  if (level == 2) prefix = "..";
++  else if (level == 1) prefix = ".. ..";
++  else prefix = ".. .. ..";
++
++  for(int i = 0; i < 512; i++){
++    pte_t pte = pagetable[i];
++    if(pte & PTE_V){
++      uint64 pa = PTE2PA(pte);
++      printf("%s%d: pte %p pa %p\n", prefix, i, pte, pa);
++      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
++        printwalk((pagetable_t)pa, level - 1);
++      }
++    }
++  }
++}
++
++void
++vmprint(pagetable_t pagetable) {
++  printf("page table %p\n", pagetable);
++  printwalk(pagetable, 2);
++}
++

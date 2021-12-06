@@ -10,7 +10,8 @@ struct spinlock tickslock;
 uint ticks;
 
 extern char trampoline[], uservec[], userret[];
-
+extern int lazy_alloc(uint64);
+extern void vmprint(pagetable_t pagetable);
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
@@ -67,7 +68,11 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause()==13 || r_scause()==15) {
+	// 13: pageloading faults, 15: pagewriting fault
+	uint64 addr = r_stval();
+	if(lazy_alloc(addr)<0) p->killed=1;
+  }else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
